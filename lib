@@ -1,0 +1,58 @@
+local library = {}
+getgenv().cachedInstances = {}
+
+getgenv().loadedLib = true 
+
+if getgenv().loadedLib then
+    for _, instance in next, getgenv().cachedInstances do
+        instance:Destroy()
+    end
+end
+
+library.registerInstance = function(instance, properties)
+    local instance = Instance.new(instance)
+
+    for property, value in next, properties or {} do
+        instance[property] = value
+    end
+
+    cachedInstances[instance] = instance
+    return instance
+end
+
+function library.draw(class, properties)
+    local drawing = Drawing.new(class)
+
+    for property, value in next, properties or {} do
+        drawing[property] = value
+    end
+
+    return drawing
+end 
+
+
+library.createFOV = function(radius, color)
+    local fov = library.draw("Circle", {
+        Thickness = 1,
+        Filled = false,
+        Color = color,
+        Radius = radius,
+        ZIndex = 2
+    })
+
+    local fovOutline = library.draw("Circle", {
+        Thickness = 3,
+        Filled = false,
+        Color = color,
+        Radius = radius,
+        ZIndex = 1
+    })
+
+    return fov, fovOutline
+end
+
+library.getInstances = function()
+    return cachedInstances
+end
+
+return library
