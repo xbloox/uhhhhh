@@ -1,0 +1,223 @@
+--// INIT
+if library and library.instances then
+    print("unloading . . .")
+    for i, v in next, library.instances do
+        v:Destroy()
+        v = nil
+    end
+
+    for i, v in next, library.instances do
+        print(i, v)
+    end
+
+    task.wait(0.2)
+end 
+
+--// Services
+local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
+local TextService = game:GetService("TextService")
+local UserInputService = game:GetService("UserInputService")
+
+--// Variables
+local currentCamera = workspace.CurrentCamera
+
+getgenv().library = {}
+library.instances = {}
+library.dragging = nil
+library.draggingValue = false
+
+--// Functions
+function createInstance(instanceType, properties)
+    local instance = Instance.new(instanceType)
+
+    for property, value in next, properties or {} do
+        instance[property] = value
+    end
+
+    if library.instances then
+        table.insert(library.instances, instance)
+    end
+
+    return instance
+end
+
+--// Indicator class
+local indicator = {}
+indicator.__index = indicator
+
+function indicator.new()
+    local indicator = setmetatable({}, indicator)
+
+    indicator.parent = createInstance("ScreenGui", {
+        Name = "test", 
+        Parent = CoreGui,
+        Enabled = true
+    })
+
+    indicator.holder = createInstance("Frame", {
+        Position = UDim2.new(0.5, 0, 0.5, 0), 
+        Size = UDim2.new(0, 200, 0, 60),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundColor3 = Color3.fromRGB(15, 15, 15),
+        Parent = indicator.parent,
+        BorderSizePixel = 0,
+        Visible = true,
+        BackgroundTransparency = 0.5
+    })
+
+    indicator.container = createInstance("TextButton", {
+        Text = '',
+        Position = UDim2.new(0.5, 0, 0.5, 0), 
+        Size = UDim2.new(0, 200, 0, 60),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Transparency = 1,
+        Parent = indicator.parent
+    })
+
+    indicator.corners = createInstance("UICorner", {
+        Parent = indicator.holder,
+        CornerRadius = UDim.new(0, 5)
+    })
+
+    indicator.uiStroke = createInstance("UIStroke", {
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual,
+        Color = Color3.fromRGB(30,144,255),
+        LineJoinMode = Enum.LineJoinMode.Round, 
+        Thickness = 1,
+        Enabled = true,
+        Parent = indicator.holder
+    })
+
+    indicator.avatarThumbnail = createInstance("ImageLabel", {
+        Parent = indicator.holder,
+        Position = UDim2.new(0, 10, 0, 10),
+        Size = UDim2.new(0, 50, 1, -20),
+        BorderSizePixel = 0,
+        Visible = true,
+        BackgroundTransparency = 1,
+        ImageTransparency = 0
+    })
+
+    indicator.nameText = createInstance("TextLabel", {
+        Parent = indicator.avatarThumbnail,
+        Text = "OnlyTwentCharacters",
+        TextSize = 13, 
+        Font = "Code",
+        TextColor3 = Color3.fromRGB(30,144,255),
+        TextStrokeTransparency = 0.2,
+        Position = UDim2.new(1, 2, 0, 10),
+        TextXAlignment = Enum.TextXAlignment.Left
+    })
+
+    indicator.healthText = createInstance("TextLabel", {
+        Parent = indicator.avatarThumbnail,
+        Text = "100 | Neutral",
+        TextSize = 13, 
+        Font = "Code",
+        TextColor3 = Color3.fromRGB(30,144,255),
+        TextStrokeTransparency = 0.2,
+        Position = UDim2.new(1, 2, 0, 23),
+        TextXAlignment = Enum.TextXAlignment.Left
+    })
+
+    indicator.healthbarFrame = createInstance("Frame", {
+        Parent = indicator.avatarThumbnail, 
+        Size = UDim2.new(0, TextService:GetTextSize(indicator.nameText.Text, 13, "Code", Vector2.new(0, 0)).X, 0, 7),
+        Position = UDim2.new(1, 2, 0, 33),
+        BorderSizePixel = 0, 
+        Visible = true,
+        BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+    })
+
+    indicator.healthbar = createInstance("Frame", {
+        Parent = indicator.healthbarFrame, 
+        Size = UDim2.new(1, 0, 1, 0),
+        Position = UDim2.new(0, 0, 0, 0),
+        Visible = true, 
+        BackgroundColor3 = Color3.new(0, 1, 0), 
+        BorderSizePixel = 0
+    })
+
+    indicator.healthbarFrameCorners = createInstance("UICorner", {
+        Parent = indicator.healthbarFrame,
+        CornerRadius = UDim.new(0, 5)
+    })
+
+    indicator.healthbarCorners = createInstance("UICorner", {
+        Parent = indicator.healthbar,
+        CornerRadius = UDim.new(0, 5)
+    })
+
+    indicator.container.MouseButton1Down:Connect(function(x, y)
+        library.dragging = indicator
+    end)
+
+    indicator.container.MouseButton1Up:Connect(function(x, y)
+        library.dragging = nil
+    end)
+
+    return indicator
+end
+
+function indicator:setAvatar(id)
+    local content = Players:GetUserThumbnailAsync(id, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size60x60)
+
+    self.avatarThumbnail.Image = content
+end
+
+function indicator:setName(name)
+    self.nameText.Text = name
+end
+
+function indicator:setHealth(health, localHealth)
+    local colors = {
+        ["Winning"] = Color3.new(0, 1, 0),
+        ["Losing"] = Color3.new(1, 0, 0),
+        ["Neutral"] = Color3.fromRGB(105,105,105)
+    }
+
+    localHealth = not localHealth and 100 or localHealth
+    local fightStatus = health > localHealth and "Losing" or health < localHealth and "Winning" or health == localHealth and "Neutral"
+    local healthbarColors = user_settings and {user_settings.indicator.color1, user_settings.indicator.color2} or {Color3.new(0, 1, 0), Color3.new(1, 0, 0)}
+
+
+    self.healthText.Text = `{health} | {fightStatus}`
+    self.healthText.TextColor3 = colors[fightStatus]
+
+    local healthFactor = math.clamp(health / 100, 0, 1)
+    self.healthbar.Size = UDim2.new(healthFactor, 0, 1, 0)
+    self.healthbar.BackgroundColor3 = healthbarColors[2]:lerp(healthbarColors[1], healthFactor)
+end
+
+function indicator:setVisible(bool)
+    self.parent.Enabled = bool
+end
+
+
+UserInputService.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then 
+        local mousePosition = UserInputService:GetMouseLocation()
+
+        if library.dragging ~= nil then 
+            library.dragging.holder.Position = UDim2.new(0, mousePosition.X, 0, mousePosition.Y)
+            library.dragging.container.Position = UDim2.new(0, mousePosition.X, 0, mousePosition.Y)
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then 
+        library.dragging = nil
+    end
+end)
+
+-- local indicator = indicator.new()
+-- indicator:setAvatar(1)
+
+-- for i = 1, 100 do 
+--     task.wait(0.06)
+--     indicator:setHealth(i)
+-- end
+
+return indicator
