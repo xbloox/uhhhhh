@@ -1,41 +1,29 @@
 local png = {}
 
--- math/local shortcuts
 local floor, ceil, min, max, abs = math.floor, math.ceil, math.min, math.max, math.abs
 
--- memoize helper
-local function memoize(f)
-    local cache = {}
+local function memo(f)
+    local c = setmetatable({}, {__mode = "kv"})
     return function(...)
-        local key = table.concat({...}, "-")
-        if not cache[key] then
-            cache[key] = f(...)
+        local k = table.concat({...}, "-")
+        if not c[k] then
+            c[k] = f(...)
         end
-        return cache[key]
+        return c[k]
     end
 end
-
--- convert big-endian byte-string to integer
-local function int(bytes)
+local function int(b)
     local n = 0
-    for i = 1, #bytes do
-        n = 256 * n + bytes:sub(i, i):byte()
+    for i = 1, #b do
+        n = 256 * n + b:sub(i, i):byte()
     end
     return n
 end
-int = memoize(int)
-
--- parse a binary string "010101" → number
-local function bint(bits)
-    return tonumber(bits, 2) or 0
-end
-bint = memoize(bint)
-
--- turn a number or string into an N-bit binary string
-local function bits(b, width)
+int = memo(int)
+local function bits(b, w)
     local s = ""
     if type(b) == "number" then
-        for i = 1, width do
+        for i = 1, w do
             s = (b % 2) .. s
             b = floor(b / 2)
         end
@@ -46,558 +34,459 @@ local function bits(b, width)
     end
     return s
 end
-bits = memoize(bits)
-
--- repeat/stretch a short byte-string
-local function fill(bytes, len)
-    return bytes:rep(floor(len / #bytes)) .. bytes:sub(1, len % #bytes)
+bits = memo(bits)
+local function bint(x)
+    return tonumber(x, 2) or 0
 end
-
--- zip/unzip, map, filter, find, slice, range
-local function zip(t1, t2)
-    local out = {}
-    for i = 1, max(#t1, #t2) do
-        out[#out + 1] = {t1[i], t2[i]}
-    end
-    return out
-end
-
-local function unzip(z)
-    local t1, t2 = {}, {}
-    for i = 1, #z do
-        t1[#t1 + 1], t2[#t2 + 1] = z[i][1], z[i][2]
-    end
-    return t1, t2
-end
-
-local function map(f, t)
-    local out = {}
-    for i = 1, #t do
-        out[#out + 1] = f(t[i], i)
-    end
-    return out
-end
-
-local function filter(pred, t)
-    local out = {}
-    for i = 1, #t do
-        if pred(t[i], i) then
-            out[#out + 1] = t[i]
-        end
-    end
-    return out
-end
-
-local function find(key, t)
-    if type(key) == "function" then
-        for i = 1, #t do
-            if key(t[i]) then
-                return i
-            end
-        end
-        return nil
-    else
-        return find(
-            function(x)
-                return x == key
-            end,
-            t
-        )
-    end
-end
-
-local function slice(t, i, j, step)
-    local out = {}
-    local start = (i < 1 and 1) or i
-    local finish = (j and j) or #t
-    for k = start, finish, step or 1 do
-        out[#out + 1] = t[k]
-    end
-    return out
-end
-
-local function range(i, j)
-    local r = {}
-    if j then
-        for k = i, j do
-            r[#r + 1] = k
-        end
-    else
-        for k = 0, i - 1 do
-            r[#r + 1] = k
-        end
-    end
-    return r
-end
-
--- simple byte stream
-local function byte_stream(raw)
-    local curr = 0
-    return {
-        read = function(_, n)
-            local s = raw:sub(curr + 1, curr + n)
-            curr = curr + n
+bint = memo(bint)
+local function byte_stream(r)
+    local c = 0
+    return {read = function(_, n)
+            local s = r:sub(c + 1, c + n)
+            c = c + n
             return s
-        end,
-        seek = function(_, n, whence)
-            if whence == "beg" then
-                curr = n
-            elseif whence == "end" then
-                curr = #raw
+        end, seek = function(_, n, w)
+            if w == "beg" then
+                c = n
+            elseif w == "end" then
+                c = #r
             else
-                curr = curr + n
+                c = c + n
             end
-            return nil
-        end,
-        is_empty = function()
-            return curr >= #raw
-        end,
-        pos = function()
-            return curr
-        end,
-        raw = function()
-            return raw
-        end
-    }
+        end, is_empty = function()
+            return c >= #r
+        end, pos = function()
+            return c
+        end, raw = function()
+            return r
+        end}
 end
-
--- bit‐level stream
-local function bit_stream(raw, offset)
-    local curr = 0
-    offset = offset or 0
-    return {
-        read = function(_, n, reverse)
-            local start = floor(curr / 8) + offset + 1
-            local slice = raw:sub(start, start + ceil(n / 8))
-            local b = bits(slice):sub(curr % 8 + 1, curr % 8 + n)
-            curr = curr + n
-            return reverse and b or b:reverse()
-        end,
-        seek = function(_, n)
+local function bit_stream(r, o)
+    local c = 0
+    o = o or 0
+    return {read = function(_, n, rev)
+            local st = floor(c / 8) + o + 1
+            local sl = r:sub(st, st + ceil(n / 8))
+            local b = bits(sl):sub(c % 8 + 1, c % 8 + n)
+            c = c + n
+            return rev and b or b:reverse()
+        end, seek = function(_, n)
             if n == "beg" then
-                curr = 0
+                c = 0
             elseif n == "end" then
-                curr = 8 * #raw
+                c = 8 * #r
             else
-                curr = curr + n
+                c = c + n
             end
-            return nil
-        end,
-        is_empty = function()
-            return curr >= 8 * #raw
-        end,
-        pos = function()
-            return curr
-        end
-    }
+        end, is_empty = function()
+            return c >= 8 * #r
+        end, pos = function()
+            return c
+        end}
 end
-
--- output buffer with backwards-copy support
 local function output_stream()
-    local buf, curr = {}, 0
+    local b, cur = {}, 0
     local S = {}
-    function S.write(_, bytes)
-        for i = 1, #bytes do
-            buf[#buf + 1] = bytes:sub(i, i)
+    function S.write(_, s)
+        for i = 1, #s do
+            b[#b + 1] = s:sub(i, i)
         end
-        curr = curr + #bytes
+        cur = cur + #s
     end
-    function S.back_read(_, offset, n)
+    function S.back_read(_, o, n)
         local out = {}
-        local start = curr - offset + 1
-        for i = start, start + n - 1 do
-            out[#out + 1] = buf[i]
+        local st = cur - o + 1
+        for i = st, st + n - 1 do
+            out[#out + 1] = b[i]
         end
         return table.concat(out)
     end
-    function S.back_copy(_, dist, len)
-        local start = curr - dist + 1
-        local copy = {}
-        for i = start, start + len - 1 do
-            copy[#copy + 1] = buf[i]
+    function S.back_copy(_, d, l)
+        local st = cur - d + 1
+        local cp = {}
+        for i = st, st + l - 1 do
+            cp[#cp + 1] = b[i]
         end
-        S.write(_, fill(table.concat(copy), len))
+        S.write(_, string.rep(table.concat(cp), math.ceil(l / #cp)):sub(1, l))
     end
     function S.pos()
-        return curr
+        return cur
     end
     function S.raw()
-        return table.concat(buf)
+        return table.concat(b)
     end
     return S
 end
-
--- constants for inflate
-local CL_ORDER = {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15}
-local MAX_BITS = 15
-local PT_W = 8
-
--- header: length bytes → list of code lengths
-local function cl_code_lens(stream, hclen)
-    local out = {}
-    for i = 1, hclen do
-        out[#out + 1] = bint(stream:read(3))
-    end
-    return out
-end
-
--- build (length, symbol) pairs sorted by length then symbol
-local function code_tree(lens, alpha)
-    alpha = alpha or range(#lens)
-    local zs =
-        filter(
-        function(z, i)
-            return lens[i] and lens[i] > 0
-        end,
-        alpha
-    )
-    local ls =
-        filter(
-        function(x)
-            return x > 0
-        end,
-        lens
-    )
-    local tree = zip(ls, zs)
-    table.sort(
-        tree,
-        function(a, b)
-            if a[1] == b[1] then
-                return a[2] < b[2]
-            end
-            return a[1] < b[1]
-        end
-    )
-    return unzip(tree)
-end
-
--- produce canonical codes as bit-strings
-local function codes(lens)
-    local out, code = {}, 0
-    for i = 1, #lens do
-        out[#out + 1] = bits(code, lens[i])
-        if i < #lens then
-            code = (code + 1) * 2 ^ (lens[i + 1] - lens[i])
-        end
-    end
-    return out
-end
-
--- handle codes longer than PT_W bits
-local function handle_long(codesList, alpha, pt)
-    local idx =
-        find(
-        function(x)
-            return #x > PT_W
-        end,
-        codesList
-    )
-    local long = slice(zip(codesList, alpha), idx)
-    local done = 0
-    while done < #long do
-        local prefix = long[done + 1][1]:sub(1, PT_W)
-        local same =
-            filter(
-            function(z)
-                return z[1]:sub(1, PT_W) == prefix
-            end,
-            long
-        )
-        local tail =
-            map(
-            function(z)
-                return {z[1]:sub(PT_W + 1), z[2]}
-            end,
-            same
-        )
-        pt[prefix] = {rest = prefix_table(unzip(tail)), unused = 0}
-        done = done + #same
-    end
-end
-
--- build a prefix lookup table for lengths ≤ PT_W
-function prefix_table(codesList, alpha)
+local CHANNELS = {[0] = 1, [2] = 3, [3] = 1, [4] = 2, [6] = 4}
+local PT_W, MAX_BITS, CL_ORDER = 8, 15, {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15}
+local function prefix_table(cl, al)
     local pt = {}
-    if #codesList[#codesList] > PT_W then
-        handle_long(codesList, alpha, pt)
+    local function handle(cds, alp)
+        local idx
+        for i, v in ipairs(cds) do
+            if #v > PT_W then
+                idx = i
+                break
+            end
+        end
+        if not idx then
+            return
+        end
+        local long = {}
+        for i = idx, #cds do
+            long[#long + 1] = {cds[i], alp[i]}
+        end
+        local done = 0
+        while done < #long do
+            local pre = long[done + 1][1]:sub(1, PT_W)
+            local same = {}
+            for _, z in ipairs(long) do
+                if z[1]:sub(1, PT_W) == pre then
+                    same[#same + 1] = z
+                end
+            end
+            local tail = {}
+            for _, z in ipairs(same) do
+                tail[#tail + 1] = {z[1]:sub(PT_W + 1), z[2]}
+            end
+            pt[pre] = {
+                rest = prefix_table(
+                    (function(t)
+                        local a = {}
+                        for _, x in ipairs(t) do
+                            a[#a + 1] = x[1]
+                        end
+                        return a
+                    end)(tail),
+                    (function(t)
+                        local a = {}
+                        for _, x in ipairs(t) do
+                            a[#a + 1] = x[2]
+                        end
+                        return a
+                    end)(tail)
+                ),
+                unused = 0
+            }
+            done = done + #same
+        end
     end
-    for i = 1, #codesList do
-        local cd = codesList[i]
+    handle(cl, al)
+    for i, cd in ipairs(cl) do
         if #cd > PT_W then
             break
         end
-        local entry = {value = alpha[i], unused = PT_W - #cd}
-        if entry.unused == 0 then
-            pt[cd] = entry
+        local e = {value = al[i], unused = PT_W - #cd}
+        if e.unused == 0 then
+            pt[cd] = e
         else
-            for n = 0, 2 ^ entry.unused - 1 do
-                pt[cd .. bits(n, entry.unused)] = entry
+            for n = 0, 2 ^ e.unused - 1 do
+                pt[cd .. bits(n, e.unused)] = e
             end
         end
     end
     return pt
 end
-
--- return a decoder(stream) → symbol
-function huffman_decoder(lens, alpha)
+local function codes(len)
+    local o, c = {}, 0
+    for i = 1, #len do
+        o[#o + 1] = bits(c, len[i])
+        if i < #len then
+            c = (c + 1) * 2 ^ (len[i + 1] - len[i])
+        end
+    end
+    return o
+end
+local function code_tree(len, al)
+    local zs, ls = {}, {}
+    al = al or (function(n)
+            local r = {}
+            for i = 0, n - 1 do
+                r[#r + 1] = i
+            end
+            return r
+        end)(#len)
+    for i, v in ipairs(al) do
+        if len[i] and len[i] > 0 then
+            zs[#zs + 1] = v
+            ls[#ls + 1] = len[i]
+        end
+    end
+    local tree = {}
+    for i = 1, #zs do
+        tree[#tree + 1] = {ls[i], zs[i]}
+    end
+    table.sort(
+        tree,
+        function(a, b)
+            return a[1] == b[1] and a[2] < b[2] or a[1] < b[1]
+        end
+    )
+    local l, z = {}, {}
+    for _, v in ipairs(tree) do
+        l[#l + 1], z[#z + 1] = v[1], v[2]
+    end
+    return l, z
+end
+local function huff_dec(lens, alpha)
     local base = prefix_table(codes(lens), alpha)
-    return function(stream)
-        local entry, tableRef = nil, base
+    return function(st)
+        local e, t = nil, base
         repeat
-            entry = tableRef[stream:read(PT_W, true)]
-            stream:seek(-entry.unused)
-            tableRef = entry.rest
-        until not tableRef
-        return entry.value
+            e = t and t[st:read(PT_W, true)] or base[st:read(PT_W, true)]
+            st:seek(-e.unused)
+            t = e.rest
+        until not t
+        return e.value
     end
 end
-
--- read code lengths from bitstream
-local function code_lens(stream, decode, n)
-    local out = {}
-    while #out < n do
-        local v = decode(stream)
+local function cl_code_lens(st, h)
+    local o = {}
+    for i = 1, h do
+        o[#o + 1] = bint(st:read(3))
+    end
+    return o
+end
+local function code_lens(st, dec, n)
+    local o = {}
+    while #o < n do
+        local v = dec(st)
         if v < 16 then
-            out[#out + 1] = v
+            o[#o + 1] = v
         elseif v == 16 then
-            local cnt = bint(stream:read(2)) + 3
-            for i = 1, cnt do
-                out[#out + 1] = out[#out]
+            local c = bint(st:read(2)) + 3
+            for _ = 1, c do
+                o[#o + 1] = o[#o]
             end
         elseif v == 17 then
-            local cnt = bint(stream:read(3)) + 3
-            for i = 1, cnt do
-                out[#out + 1] = 0
+            local c = bint(st:read(3)) + 3
+            for _ = 1, c do
+                o[#o + 1] = 0
             end
         else
-            local cnt = bint(stream:read(7)) + 11
-            for i = 1, cnt do
-                out[#out + 1] = 0
+            local c = bint(st:read(7)) + 11
+            for _ = 1, c do
+                o[#o + 1] = 0
             end
         end
     end
-    return out
+    return o
 end
-
--- build literal/length & distance decoders
-local function code_trees(stream)
-    local hlit = bint(stream:read(5)) + 257
-    local hdist = bint(stream:read(5)) + 1
-    local hclen = bint(stream:read(4)) + 4
-    local cld = huffman_decoder(code_tree(cl_code_lens(stream, hclen), CL_ORDER))
-    local ld = huffman_decoder(code_tree(code_lens(stream, cld, hlit)))
-    local dd = huffman_decoder(code_tree(code_lens(stream, cld, hdist)))
-    return ld, dd
-end
-
--- extra bits based on symbol
-local function extra_bits(sym)
-    if sym < 4 or sym > 29 then
+local function extra_bits(s)
+    if s < 4 or s > 29 then
         return 0
     end
-    if sym <= 29 then
-        return floor((sym - 2) / 2)
+    if s <= 29 then
+        return floor((s - 2) / 2)
     end
     return 0
 end
-extra_bits = memoize(extra_bits)
-
--- decode length for a symbol and extra bits
-local function decode_len(sym, bitsStr)
-    if sym < 257 or sym > 285 then
-        error("len out of range")
-    end
-    if sym == 285 then
+extra_bits = memo(extra_bits)
+local function decode_len(s, b)
+    if s == 285 then
         return 258
     end
-    local base = 3 + (sym - 257) * ((sym < 285) and 1 or 0)
-    return base + bint(bitsStr)
+    return 3 + (s - 257) + bint(b)
 end
-
--- decode distance
-local function decode_dist(sym, bitsStr)
-    return bint(bitsStr) + 1
+local function decode_dist(s, b)
+    return bint(b) + 1
 end
-decode_dist = memoize(decode_dist)
-
--- inflate DEFLATE blocks (only type 2 supported)
-local function inflate(stream)
+decode_dist = memo(decode_dist)
+local function inflate(st)
     local out = output_stream()
     repeat
-        local bfinal = bint(stream:read(1))
-        local btype = bint(stream:read(2))
+        local bfinal = bint(st:read(1))
+        local btype = bint(st:read(2))
         if btype ~= 2 then
-            error("only dynamic Huffman supported")
+            error("only dynamic huffman")
         end
-        local ld, dd = code_trees(stream)
+        local ld, dd
+        local hlit = bint(st:read(5)) + 257
+        local hdist = bint(st:read(5)) + 1
+        local hclen = bint(st:read(4)) + 4
+        local cld =
+            huff_dec(
+            (function(st, hcl)
+                local o = {}
+                for i = 1, hcl do
+                    o[#o + 1] = bint(st:read(3))
+                end
+                return code_tree(o, CL_ORDER)
+            end)(st, hclen)
+        )
+        ld = huff_dec(code_tree(code_lens(st, cld, hlit)))
+        dd = huff_dec(code_tree(code_lens(st, cld, hdist)))
         while true do
-            local v = ld(stream)
+            local v = ld(st)
             if v < 256 then
                 out:write(string.char(v))
             elseif v == 256 then
                 break
             else
-                local len = decode_len(v, stream:read(extra_bits(v)))
-                local dsym = dd(stream)
-                local dist = decode_dist(dsym, stream:read(extra_bits(dsym)))
+                local len = decode_len(v, st:read(extra_bits(v)))
+                local ds = dd(st)
+                local dist = decode_dist(ds, st:read(extra_bits(ds)))
                 out:back_copy(dist, len)
             end
         end
     until bfinal == 1
     return out
 end
-
--- chunk processing
-
-local CHANNELS = {[0] = 1, [2] = 3, [4] = 2, [6] = 4}
-
-local function process_header(stream, image)
-    stream:seek(8, "beg")
-    image.width = int(stream:read(4))
-    image.height = int(stream:read(4))
-    image.bit_depth = int(stream:read(1))
-    image.color_type = int(stream:read(1))
-    image.channels = CHANNELS[image.color_type]
-    stream:seek(5, "cur")
+local function process_header(st, img)
+    st:seek(8, "beg")
+    img.width = int(st:read(4))
+    img.height = int(st:read(4))
+    img.bit_depth = int(st:read(1))
+    img.color_type = int(st:read(1))
+    img.channels = CHANNELS[img.color_type]
+    st:seek(5, "cur")
 end
-
-local function process_data(stream, image)
-    local clen = int(stream:read(4))
-    stream:seek(4, "cur") -- skip "IDAT"
-    local zstream = output_stream()
+local function process_palette(st, img)
+    local len = int(st:read(4))
+    st:seek(4, "cur")
+    img.plte = {string.byte(st:read(len), 1, -1)}
+    st:seek(4, "cur")
+end
+local function process_trns(st, img)
+    local len = int(st:read(4))
+    st:seek(4, "cur")
+    img.trns = st:read(len)
+    st:seek(4, "cur")
+end
+local function process_data(st, img)
+    local len = int(st:read(4))
+    st:seek(4, "cur")
+    local zb = output_stream()
     repeat
-        zstream:write(stream:read(clen))
-        stream:seek(4, "cur") -- skip CRC
-        clen = int(stream:read(4))
-    until stream:read(4) ~= "IDAT"
-    stream:seek(-8, "cur")
-    local bstr = bit_stream(zstream:raw(), 2)
-    image.data = inflate(bstr)
+        zb:write(st:read(len))
+        st:seek(4, "cur")
+        len = int(st:read(4))
+    until st:read(4) ~= "IDAT"
+    st:seek(-8, "cur")
+    img.data = inflate(bit_stream(zb:raw(), 2)):raw()
 end
-
-local function process_chunk(stream, image)
-    local clen = int(stream:read(4))
-    local ctype = stream:read(4)
-    stream:seek(-8, "cur")
-    if ctype == "IHDR" then
-        process_header(stream, image)
-    elseif ctype == "IDAT" then
-        process_data(stream, image)
-    elseif ctype == "IEND" then
-        stream:seek("end")
+local function process_chunk(st, img)
+    local len = int(st:read(4))
+    local typ = st:read(4)
+    st:seek(-8, "cur")
+    if typ == "IHDR" then
+        process_header(st, img)
+    elseif typ == "PLTE" then
+        process_palette(st, img)
+    elseif typ == "tRNS" then
+        process_trns(st, img)
+    elseif typ == "IDAT" then
+        process_data(st, img)
+    elseif typ == "IEND" then
+        st:seek("end")
     else
-        stream:seek(clen + 12, "cur")
+        st:seek(len + 12, "cur")
     end
 end
-
--- public loader from raw PNG bytes
 local PNG_HDR = "\137PNG\r\n\26\n"
-function png.load(data)
-    local st = byte_stream(data)
-    assert(st:read(8) == PNG_HDR, "not a PNG")
-    local image = {}
+function png.load(d)
+    local st = byte_stream(d)
+    assert(st:read(8) == PNG_HDR, "not png")
+    local img = {}
     repeat
-        process_chunk(st, image)
+        process_chunk(st, img)
     until st:is_empty()
-    return image
+    return img
 end
-
--- fetch via HTTP
 local Http = request or http_request or (syn and syn.request)
-function png.load_from_url(url)
-    local res = Http({Url = url, Method = "GET"})
-    assert(res.Success, "PNG fetch failed")
-    return png.load(res.Body)
+function png.load_from_url(u)
+    local r = Http({Url = u, Method = "GET"})
+    assert(r.Success, "fetch failed")
+    return png.load(r.Body)
 end
-
--- iterate pixels: returns p, x, y
-function png.pixels(image)
-    local idx = 0
-    local next_line =
-        (function()
-        local scan = png._scan -- defined below
-        return scan(image)
-    end)()
-
-    -- wrap scanlines iterator
+local function read_sample_bits(row, idx, depth)
+    local b = row[math.floor(idx * depth / 8) + 1]
+    local bit_idx = (8 - depth) - ((idx * depth) % 8)
+    return bit32.extract(b, bit_idx, depth)
+end
+function png.pixels(img)
+    local idx = -1
+    local stride = math.ceil(img.width * img.bit_depth * img.channels / 8)
+    local st = byte_stream(img.data)
+    local function unfilter(row, prev, filt)
+        local function pa(a, b, c)
+            local p = a + b - c
+            local pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+            if pa <= pb and pa <= pc then
+                return a
+            elseif pb <= pc then
+                return b
+            else
+                return c
+            end
+        end
+        for i = 1, #row do
+            local l = (i > img.channels and row[i - img.channels]) or 0
+            local u = prev and prev[i] or 0
+            local v
+            row[i] = row[i] % 256
+            if filt == 0 then
+                v = row[i]
+            elseif filt == 1 then
+                v = (row[i] + l) % 256
+            elseif filt == 2 then
+                v = (row[i] + u) % 256
+            elseif filt == 3 then
+                v = (row[i] + floor((l + u) / 2)) % 256
+            else
+                v = (row[i] + pa(l, u, 0)) % 256
+            end
+            row[i] = v
+        end
+        return row
+    end
+    local scan =
+        coroutine.wrap(
+        function()
+            local prev = nil
+            for y = 0, img.height - 1 do
+                if st:is_empty() then
+                    break
+                end
+                local filt = int(st:read(1))
+                local row = {string.byte(st:read(stride), 1, -1)}
+                row = unfilter(row, prev, filt)
+                prev = row
+                for x = 0, img.width - 1 do
+                    local r, g, b, a
+                    if img.color_type == 0 then
+                        local val =
+                            img.bit_depth == 8 and row[x + 1] or
+                            read_sample_bits(row, x, img.bit_depth) * 255 / (2 ^ img.bit_depth - 1)
+                        r, g, b = val, val, val
+                        a = 255
+                    elseif img.color_type == 2 then
+                        local i = x * 3
+                        r, g, b = row[i + 1], row[i + 2], row[i + 3]
+                        a = 255
+                    elseif img.color_type == 3 then
+                        local idxv =
+                            img.bit_depth == 8 and row[x + 1] + 1 or read_sample_bits(row, x, img.bit_depth) + 1
+                        local off = (idxv - 1) * 3
+                        r, g, b = img.plte[off + 1], img.plte[off + 2], img.plte[off + 3]
+                        a = img.trns and img.trns:byte(idxv) or 255
+                    elseif img.color_type == 4 then
+                        local i = x * 2
+                        local g8 = row[i + 1]
+                        local a8 = row[i + 2]
+                        r, g, b, a = g8, g8, g8, a8
+                    elseif img.color_type == 6 then
+                        local i = x * 4
+                        r, g, b, a = row[i + 1], row[i + 2], row[i + 3], row[i + 4]
+                    end
+                    coroutine.yield({r = r / 255, g = g / 255, b = b / 255, a = a / 255}, x, y)
+                end
+            end
+        end
+    )
     return function()
-        local px, x, y = next_line()
-        if not px then
-            return nil
-        end
         idx = idx + 1
-        return px, x, y
+        return scan()
     end
 end
-
--- internal scanlines reader (unfiltered rows → one scanline at a time)
-do
-    local paeth = function(a, b, c)
-        local p = a + b - c
-        local pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
-        if pa <= pb and pa <= pc then
-            return a
-        elseif pb <= pc then
-            return b
-        else
-            return c
-        end
-    end
-
-    png._scan = function(image)
-        local w, h = image.width, image.height
-        local stride = w * (image.bit_depth / 8) * image.channels
-        local bs = byte_stream(image.data)
-
-        local function gen_line()
-            if bs:is_empty() then
-                return nil
-            end
-            local filter = int(bs:read(1))
-            local row = {string.byte(bs:read(stride), 1, -1)}
-            -- unfilter
-            for i = 1, #row do
-                local left = (i > image.channels and row[i - image.channels]) or 0
-                local up = (bs.pos and 0) -- we could store prev rows here if needed
-                local val
-                if filter == 0 then
-                    val = row[i]
-                elseif filter == 1 then
-                    val = (row[i] + left) % 256
-                elseif filter == 2 then
-                    val = (row[i] + up) % 256
-                elseif filter == 3 then
-                    val = (row[i] + floor((left + up) / 2)) % 256
-                elseif filter == 4 then
-                    val = (row[i] + paeth(left, up, 0)) % 256
-                end
-                row[i] = val
-            end
-            return row
-        end
-
-        return coroutine.wrap(
-            function()
-                for y = 0, h - 1 do
-                    local row = gen_line()
-                    if not row then
-                        return
-                    end
-                    local pxRow = {}
-                    for x = 0, w - 1 do
-                        local idx = x * image.channels
-                        local entry = {r = row[idx + 1] / 255, g = row[idx + 2] / 255, b = row[idx + 3] / 255}
-                        if image.channels == 4 then
-                            entry.a = row[idx + 4] / 255
-                        else
-                            entry.a = 1
-                        end
-                        coroutine.yield(entry, x, y)
-                    end
-                end
-            end
-        )
-    end
-end
-
 return png
