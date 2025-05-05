@@ -1,6 +1,6 @@
 --// INIT
 if library and library.instances then
-    for i, v in next, library.instances do
+    for i,v in next, library.instances do
         v:Destroy()
         library.instances[i] = nil
     end
@@ -8,10 +8,9 @@ if library and library.instances then
 end
 
 --// Services
-local Players           = game:GetService("Players")
-local TextService       = game:GetService("TextService")
-local UserInputService  = game:GetService("UserInputService")
-local GuiParent         = gethui()  -- use gethui() instead of CoreGui
+local Players          = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local GuiParent        = gethui()
 
 --// Variables
 getgenv().library     = {}
@@ -19,9 +18,9 @@ library.instances     = {}
 library.dragging      = nil
 
 --// Helpers
-local function createInstance(type_, props)
-    local inst = Instance.new(type_)
-    for p, v in next, props or {} do inst[p] = v end
+local function createInstance(class, props)
+    local inst = Instance.new(class)
+    for p,v in next, props or {} do inst[p] = v end
     table.insert(library.instances, inst)
     return inst
 end
@@ -34,126 +33,122 @@ function indicator.new()
     local self = setmetatable({}, indicator)
 
     self.parent = createInstance("ScreenGui", {
-        Name   = "IndicatorGUI",
-        Parent = GuiParent,
+        Name    = "IndicatorGUI",
+        Parent  = GuiParent,
         Enabled = true
     })
 
     self.holder = createInstance("Frame", {
-        Position             = UDim2.new(0.5, 0, 0.5, 0),
-        Size                 = UDim2.new(0, 200, 0, 60),
-        AnchorPoint          = Vector2.new(0.5, 0.5),
-        BackgroundColor3     = Color3.fromRGB(15, 15, 15),
-        BorderSizePixel      = 0,
-        BackgroundTransparency = 0.5,
-        Parent               = self.parent
+        Parent              = self.parent,
+        Position            = UDim2.new(0.5,0,0.5,0),
+        Size                = UDim2.new(0,200,0,60),
+        AnchorPoint         = Vector2.new(0.5,0.5),
+        BackgroundColor3    = Color3.fromRGB(15,15,15),
+        BorderSizePixel     = 0,
+        BackgroundTransparency = 0.5
     })
-
     createInstance("UICorner", {
-        Parent = self.holder,
-        CornerRadius = UDim.new(0, 5)
+        Parent       = self.holder,
+        CornerRadius = UDim.new(0,5)
     })
-
     createInstance("UIStroke", {
         Parent            = self.holder,
         ApplyStrokeMode   = Enum.ApplyStrokeMode.Contextual,
-        Color             = Color3.fromRGB(30,144,255),
+        Color             = Color3.fromRGB(255,0,255),
         LineJoinMode      = Enum.LineJoinMode.Round,
         Thickness         = 1
     })
 
+    -- invisible button for dragging
+    self.container = createInstance("TextButton", {
+        Parent             = self.parent,
+        Position           = self.holder.Position,
+        Size               = self.holder.Size,
+        BackgroundTransparency = 1,
+        Text               = ""
+    })
+
     self.avatarThumbnail = createInstance("ImageLabel", {
         Parent               = self.holder,
-        Position             = UDim2.new(0, 10, 0, 10),
-        Size                 = UDim2.new(0, 50, 1, -20),
+        Position             = UDim2.new(0,10,0,10),
+        Size                 = UDim2.new(0,50,1,-20),
         BorderSizePixel      = 0,
         BackgroundTransparency = 1
     })
 
     self.nameText = createInstance("TextLabel", {
-        Parent         = self.avatarThumbnail,
-        Text           = "",
-        TextSize       = 13,
+        Parent         = self.holder,
+        Position       = UDim2.new(0,70,0,10),
+        Size           = UDim2.new(1,-80,0,18),
+        BackgroundTransparency = 1,
+        TextSize       = 14,
         Font           = Enum.Font.Code,
-        TextColor3     = Color3.fromRGB(30,144,255),
-        Position       = UDim2.new(1, 2, 0, 10),
-        TextXAlignment = Enum.TextXAlignment.Left,
-        BackgroundTransparency = 1
-    })
-
-    self.healthText = createInstance("TextLabel", {
-        Parent         = self.avatarThumbnail,
-        Text           = "",
-        TextSize       = 13,
-        Font           = Enum.Font.Code,
-        TextColor3     = Color3.fromRGB(30,144,255),
-        Position       = UDim2.new(1, 2, 0, 23),
-        TextXAlignment = Enum.TextXAlignment.Left,
-        BackgroundTransparency = 1
+        TextColor3     = Color3.new(1,1,1),
+        TextXAlignment = Enum.TextXAlignment.Left
     })
 
     self.healthbarFrame = createInstance("Frame", {
-        Parent          = self.avatarThumbnail,
-        Size            = UDim2.new(0, 50, 0, 7),
-        Position        = UDim2.new(1, 2, 0, 33),
-        BorderSizePixel = 0,
-        BackgroundColor3 = Color3.fromRGB(15,15,15)
+        Parent            = self.holder,
+        Position          = UDim2.new(0,70,1,-20),
+        Size              = UDim2.new(1,-80,0,10),
+        BorderSizePixel   = 0,
+        BackgroundColor3  = Color3.fromRGB(15,15,15)
     })
+    createInstance("UICorner", { Parent = self.healthbarFrame, CornerRadius = UDim.new(0,5) })
 
     self.healthbar = createInstance("Frame", {
-        Parent          = self.healthbarFrame,
-        Size            = UDim2.new(1, 0, 1, 0),
-        BackgroundColor3 = Color3.new(0,1,0),
-        BorderSizePixel = 0
+        Parent            = self.healthbarFrame,
+        Size              = UDim2.new(1,0,1,0),
+        BorderSizePixel   = 0,
+        BackgroundColor3  = Color3.new(0,1,0)
     })
+    createInstance("UICorner", { Parent = self.healthbar, CornerRadius = UDim.new(0,5) })
 
-    createInstance("UICorner", { Parent = self.healthbarFrame,   CornerRadius = UDim.new(0,5) })
-    createInstance("UICorner", { Parent = self.healthbar,        CornerRadius = UDim.new(0,5) })
-
-    -- drag support
-    self.holder.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            library.dragging = self
-        end
+    -- dragging
+    self.container.MouseButton1Down:Connect(function()
+        library.dragging = self
     end)
-    self.holder.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            library.dragging = nil
-        end
+    self.container.MouseButton1Up:Connect(function()
+        library.dragging = nil
     end)
 
     return self
 end
 
 function indicator:setAvatar(userId)
-    local thumb = Players:GetUserThumbnailAsync(userId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size60x60)
+    local thumb = Players:GetUserThumbnailAsync(userId,
+        Enum.ThumbnailType.HeadShot,
+        Enum.ThumbnailSize.Size60x60
+    )
     self.avatarThumbnail.Image = thumb
 end
 
 function indicator:setName(name)
-    if #name > 8 then
-        name = string.sub(name, 1, 8) .. "..."
+    if #name > 14 then
+        name = name:sub(1,14) .. "..."
     end
     self.nameText.Text = name
 end
 
 function indicator:setHealth(health)
-    health = math.floor(health)
-    self.healthText.Text = tostring(health)
-    local pct = math.clamp(health / 100, 0, 1)
-    self.healthbar.Size = UDim2.new(pct, 0, 1, 0)
-    self.healthbar.BackgroundColor3 = Color3.fromHSV(pct * 0.3, 1, 1)
+    local hp = math.floor(health)
+    -- lerp color: green (hp=100) to red (hp=0)
+    local t = hp/100
+    local col = Color3.new(1-t, t, 0)
+    self.healthbar.BackgroundColor3 = col
+    self.healthbarFrame.BackgroundColor3 = Color3.fromRGB(15,15,15)
+    self.healthbar.Size = UDim2.new(t,0,1,0)
 end
 
-function indicator:setVisible(bool)
-    self.parent.Enabled = bool
+function indicator:setVisible(b)
+    self.parent.Enabled = b
 end
 
--- dragging movement
-UserInputService.InputChanged:Connect(function(input)
-    if library.dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-        local pos = UserInputService:GetMouseLocation()
-        library.dragging.holder.Position = UDim2.new(0, pos.X, 0, pos.Y)
+UserInputService.InputChanged:Connect(function(inp)
+    if inp.UserInputType == Enum.UserInputType.MouseMovement and library.dragging then
+        local mp = UserInputService:GetMouseLocation()
+        library.dragging.holder.Position = UDim2.new(0, mp.X, 0, mp.Y)
+        library.dragging.container.Position = library.dragging.holder.Position
     end
 end)
 
