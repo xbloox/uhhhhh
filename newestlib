@@ -12,12 +12,11 @@ local Players           = game:GetService("Players")
 local TextService       = game:GetService("TextService")
 local UserInputService  = game:GetService("UserInputService")
 local TweenService      = game:GetService("TweenService")
-local GuiParent         = gethui()  -- use gethui() instead of CoreGui
+local GuiParent         = gethui()
 
 --// Variables
 getgenv().library     = {}
 library.instances     = {}
-library.dragging      = nil
 
 --// Helpers
 local function createInstance(type_, props)
@@ -33,17 +32,39 @@ end
 local indicator = {}
 indicator.__index = indicator
 
+function indicator:Draggable(frame, handle)
+    local dragStartPos, frameStartPos
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragStartPos    = input.Position
+            frameStartPos   = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragStartPos = nil
+                end
+            end)
+        end
+    end)
+    handle.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement and dragStartPos then
+            local delta = input.Position - dragStartPos
+            frame.Position = UDim2.new(
+                frameStartPos.X.Scale, frameStartPos.X.Offset + delta.X,
+                frameStartPos.Y.Scale, frameStartPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+
 function indicator.new()
     local self = setmetatable({}, indicator)
 
-    -- main GUI
     self.parent = createInstance("ScreenGui", {
         Name    = "IndicatorGUI",
         Parent  = GuiParent,
         Enabled = true,
     })
 
-    -- background holder
     self.holder = createInstance("Frame", {
         Parent                 = self.parent,
         Position               = UDim2.new(0.5, 0, 0.5, 0),
@@ -65,7 +86,6 @@ function indicator.new()
         Thickness       = 1,
     })
 
-    -- avatar
     self.avatarThumbnail = createInstance("ImageLabel", {
         Parent                 = self.holder,
         Position               = UDim2.new(0, 10, 0, 10),
@@ -74,7 +94,6 @@ function indicator.new()
         BackgroundTransparency = 1,
     })
 
-    -- name label
     self.nameText = createInstance("TextLabel", {
         Parent                 = self.avatarThumbnail,
         Text                   = "",
@@ -86,7 +105,6 @@ function indicator.new()
         BackgroundTransparency = 1,
     })
 
-    -- health + status label
     self.healthText = createInstance("TextLabel", {
         Parent                 = self.avatarThumbnail,
         Text                   = "",
@@ -98,11 +116,10 @@ function indicator.new()
         BackgroundTransparency = 1,
     })
 
-    -- health bar background
     self.healthbarFrame = createInstance("Frame", {
         Parent          = self.avatarThumbnail,
         Position        = UDim2.new(1, 2, 0, 33),
-        Size            = UDim2.new(0, 130, 0, 7),      -- stretched wider
+        Size            = UDim2.new(0, 130, 0, 7),
         BorderSizePixel = 0,
         BackgroundColor3 = Color3.fromRGB(15, 15, 15),
     })
@@ -111,7 +128,6 @@ function indicator.new()
         CornerRadius = UDim.new(0, 5),
     })
 
-    -- actual health fill
     self.healthbar = createInstance("Frame", {
         Parent          = self.healthbarFrame,
         Size            = UDim2.new(1, 0, 1, 0),
@@ -123,26 +139,12 @@ function indicator.new()
         CornerRadius = UDim.new(0, 5),
     })
 
-    -- drag start: record offset so it tracks under cursor
-    self.holder.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            library.dragging = self
-            local mousePos = UserInputService:GetMouseLocation()
-            self.dragOffset = Vector2.new(mousePos.X, mousePos.Y) - self.holder.AbsolutePosition
-        end
-    end)
-
-    -- drag end
-    self.holder.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            library.dragging = nil
-        end
-    end)
+    -- apply draggable behaviour
+    self:Draggable(self.holder, self.holder)
 
     return self
 end
 
--- set the avatar image by userId
 function indicator:setAvatar(userId)
     local thumb = Players:GetUserThumbnailAsync(
         userId,
@@ -152,7 +154,6 @@ function indicator:setAvatar(userId)
     self.avatarThumbnail.Image = thumb
 end
 
--- clamp name at 14 characters, then add "..."
 function indicator:setName(name)
     if #name > 14 then
         name = name:sub(1, 14) .. "..."
@@ -160,26 +161,18 @@ function indicator:setName(name)
     self.nameText.Text = name
 end
 
--- show health, status, animate bar/color
 function indicator:setHealth(health, localHealth)
-    -- fight-status colors
     local colors = {
         Winning = Color3.new(0, 1, 0),
         Losing  = Color3.new(1, 0, 0),
         Neutral = Color3.fromRGB(105, 105, 105),
     }
-
-    -- default to 100 if not passed
     localHealth = not localHealth and 100 or localHealth
-
-    -- determine win/lose/neutral
     local fightStatus = health > localHealth
         and "Losing"
         or health < localHealth
         and "Winning"
         or "Neutral"
-
-    -- two-color gradient (override via user_settings.indicator.color1/2 if desired)
     local healthbarColors = user_settings and {
         user_settings.indicator.color1,
         user_settings.indicator.color2
@@ -188,36 +181,22 @@ function indicator:setHealth(health, localHealth)
         Color3.new(1, 0, 0)
     }
 
-    -- update text
-    self.healthText.Text = string.format("%d | %s", health, fightStatus)
+    self.healthText.Text       = string.format("%d | %s", health, fightStatus)
     self.healthText.TextColor3 = colors[fightStatus]
 
-    -- animate bar size + color
-    local pct = math.clamp(health / 100, 0, 1)
+    local pct         = math.clamp(health / 100, 0, 1)
     local targetSize  = UDim2.new(pct, 0, 1, 0)
     local targetColor = healthbarColors[2]:Lerp(healthbarColors[1], pct)
     TweenService:Create(self.healthbar, TweenInfo.new(
-        0.2,
-        Enum.EasingStyle.Quad,
-        Enum.EasingDirection.Out
+        0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out
     ), {
         Size             = targetSize,
         BackgroundColor3 = targetColor,
     }):Play()
 end
 
--- toggle visibility
 function indicator:setVisible(bool)
     self.parent.Enabled = bool
 end
-
--- handle the actual drag movement
-UserInputService.InputChanged:Connect(function(input)
-    if library.dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-        local mousePos = UserInputService:GetMouseLocation()
-        local newPos   = Vector2.new(mousePos.X, mousePos.Y) - library.dragging.dragOffset
-        library.dragging.holder.Position = UDim2.new(0, newPos.X, 0, newPos.Y)
-    end
-end)
 
 return indicator
