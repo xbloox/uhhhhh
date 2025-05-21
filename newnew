@@ -1,3 +1,9 @@
+-- indicator.lua
+local Players     = game:GetService("Players")
+local TweenService= game:GetService("TweenService")
+local gethui      = gethui() 
+
+-- when re-requiring, destroy old instances
 if library and library.instances then
     for i, v in next, library.instances do
         v:Destroy()
@@ -6,14 +12,8 @@ if library and library.instances then
     task.wait(0.2)
 end
 
-local Players           = game:GetService("Players")
-local TextService       = game:GetService("TextService")
-local UserInputService  = game:GetService("UserInputService")
-local TweenService      = game:GetService("TweenService")
-local GuiParent         = gethui()
-
-getgenv().library     = {}
-library.instances     = {}
+getgenv().library      = {}
+library.instances      = {}
 
 local function createInstance(type_, props)
     local inst = Instance.new(type_)
@@ -31,8 +31,8 @@ function indicator:Draggable(frame, handle)
     local dragStartPos, frameStartPos
     handle.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragStartPos    = input.Position
-            frameStartPos   = frame.Position
+            dragStartPos  = input.Position
+            frameStartPos = frame.Position
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     dragStartPos = nil
@@ -57,7 +57,7 @@ function indicator.new()
 
     self.parent = createInstance("ScreenGui", {
         Name    = "IndicatorGUI",
-        Parent  = GuiParent,
+        Parent  = gethui(),
         Enabled = true,
     })
 
@@ -117,7 +117,7 @@ function indicator.new()
         Position        = UDim2.new(1, 2, 0, 33),
         Size            = UDim2.new(0, 130, 0, 7),
         BorderSizePixel = 0,
-        BackgroundColor3 = Color3.fromRGB(15, 15, 15),
+        BackgroundColor3= Color3.fromRGB(15, 15, 15),
     })
     createInstance("UICorner", {
         Parent       = self.healthbarFrame,
@@ -127,7 +127,7 @@ function indicator.new()
     self.healthbar = createInstance("Frame", {
         Parent          = self.healthbarFrame,
         Size            = UDim2.new(1, 0, 1, 0),
-        BackgroundColor3 = Color3.new(0, 1, 0),
+        BackgroundColor3= Color3.new(0, 1, 0),
         BorderSizePixel = 0,
     })
     createInstance("UICorner", {
@@ -136,7 +136,6 @@ function indicator.new()
     })
 
     self:Draggable(self.holder, self.holder)
-
     return self
 end
 
@@ -163,30 +162,22 @@ function indicator:setHealth(health, localHealth)
         Neutral = Color3.fromRGB(105, 105, 105),
     }
     localHealth = not localHealth and 100 or localHealth
-    local fightStatus = health > localHealth
-        and "Losing"
-        or health < localHealth
-        and "Winning"
-        or "Neutral"
-    local healthbarColors = user_settings and {
-        user_settings.indicator.color1,
-        user_settings.indicator.color2
-    } or {
-        Color3.new(0, 1, 0),
-        Color3.new(1, 0, 0)
-    }
+    local fightStatus = health > localHealth and "Losing"
+                     or health < localHealth and "Winning"
+                     or "Neutral"
 
     self.healthText.Text       = string.format("%d | %s", health, fightStatus)
     self.healthText.TextColor3 = colors[fightStatus]
 
-    local pct         = math.clamp(health / 100, 0, 1)
-    local targetSize  = UDim2.new(pct, 0, 1, 0)
-    local targetColor = healthbarColors[2]:Lerp(healthbarColors[1], pct)
-    TweenService:Create(self.healthbar, TweenInfo.new(
-        0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out
-    ), {
-        Size             = targetSize,
-        BackgroundColor3 = targetColor,
+    local pct        = math.clamp(health / 100, 0, 1)
+    local targetSize = UDim2.new(pct, 0, 1, 0)
+    local targetColor= ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.new(1,0,0)),
+        ColorSequenceKeypoint.new(1, Color3.new(0,1,0))
+    })
+    TweenService:Create(self.healthbar, TweenInfo.new(0.2,Enum.EasingStyle.Quad),{
+        Size = targetSize,
+        BackgroundColor3 = targetColor:Evaluate(pct)
     }):Play()
 end
 
@@ -197,29 +188,31 @@ end
 function indicator:ShowHit(Name,Part,Damage,Lethal)
     local Txt = ("Hit %s in the %s for %d"):format(Name,Part,Damage)
     local Col = Lethal and Color3.new(1,0,0) or Color3.new(0,1,0)
-    local YOff = #self.Notifs * -35
+    local YOff= #self.Notifs * -35
     local C = createInstance("Frame",{
-        Parent       = self.parent,
-        Position     = UDim2.new(0.5,0,0,10+YOff),
-        AnchorPoint  = Vector2.new(0.5,0),
-        Size         = UDim2.new(0,300,0,30),
+        Parent      = self.parent,
+        Position    = UDim2.new(0.5,0,0,10+YOff),
+        AnchorPoint = Vector2.new(0.5,0),
+        Size        = UDim2.new(0,300,0,30),
         BackgroundTransparency = 1
     })
     createInstance("TextLabel",{
-        Parent       = C,
-        Size         = UDim2.new(1,0,1,0),
-        Text         = Txt,
-        Font         = Enum.Font.Code,
-        TextSize     = 14,
-        TextColor3   = Col,
+        Parent      = C,
+        Size        = UDim2.new(1,0,1,0),
+        Text        = Txt,
+        Font        = Enum.Font.Code,
+        TextSize    = 14,
+        TextColor3  = Col,
         BackgroundTransparency = 1
     })
     table.insert(self.Notifs,C)
-    TweenService:Create(C,TweenInfo.new(1,Enum.EasingStyle.Quad),{Position=UDim2.new(0.5,0,0,-20+YOff)}):Play()
+    TweenService:Create(C,TweenInfo.new(1,Enum.EasingStyle.Quad),{
+        Position = UDim2.new(0.5,0,0,-20+YOff)
+    }):Play()
     task.delay(1,function()
         C:Destroy()
         for i,F in ipairs(self.Notifs) do
-            if F==C then table.remove(self.Notifs,i) break end
+            if F==C then table.remove(self.Notifs,i); break end
         end
     end)
 end
@@ -227,29 +220,31 @@ end
 function indicator:ShowMiss(Name)
     local Txt = ("Missed %s"):format(Name)
     local Col = Color3.new(1,1,0)
-    local YOff = #self.Notifs * -35
+    local YOff= #self.Notifs * -35
     local C = createInstance("Frame",{
-        Parent       = self.parent,
-        Position     = UDim2.new(0.5,0,0,10+YOff),
-        AnchorPoint  = Vector2.new(0.5,0),
-        Size         = UDim2.new(0,300,0,30),
+        Parent      = self.parent,
+        Position    = UDim2.new(0.5,0,0,10+YOff),
+        AnchorPoint = Vector2.new(0.5,0),
+        Size        = UDim2.new(0,300,0,30),
         BackgroundTransparency = 1
     })
     createInstance("TextLabel",{
-        Parent       = C,
-        Size         = UDim2.new(1,0,1,0),
-        Text         = Txt,
-        Font         = Enum.Font.Code,
-        TextSize     = 14,
-        TextColor3   = Col,
+        Parent      = C,
+        Size        = UDim2.new(1,0,1,0),
+        Text        = Txt,
+        Font        = Enum.Font.Code,
+        TextSize    = 14,
+        TextColor3  = Col,
         BackgroundTransparency = 1
     })
     table.insert(self.Notifs,C)
-    TweenService:Create(C,TweenInfo.new(1,Enum.EasingStyle.Quad),{Position=UDim2.new(0.5,0,0,-20+YOff)}):Play()
+    TweenService:Create(C,TweenInfo.new(1,Enum.EasingStyle.Quad),{
+        Position = UDim2.new(0.5,0,0,-20+YOff)
+    }):Play()
     task.delay(1,function()
         C:Destroy()
         for i,F in ipairs(self.Notifs) do
-            if F==C then table.remove(self.Notifs,i) break end
+            if F==C then table.remove(self.Notifs,i); break end
         end
     end)
 end
